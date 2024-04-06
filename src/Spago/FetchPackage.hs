@@ -121,7 +121,7 @@ fetchPackage metadata pair@(packageName'@PackageName{..}, Package{ location = Re
         logInfo $ "Copying from global cache: " <> display quotedName
         cptree packageGlobalCacheDir downloadDir
         assertDirectory (localCacheDir </> Text.unpack packageName)
-        mv downloadDir packageLocalCacheDir
+        Directory.renameDirectory downloadDir packageLocalCacheDir
       else Temp.withTempDirectory globalCacheDir (Text.unpack ("__temp-" <> "-" <> packageName <> getCacheVersionDir version)) $ \globalTemp -> do
         -- Otherwise, check if the Package is on GitHub and an "immutable" ref.
         -- If yes, download the tar archive and copy it to global and then local cache.
@@ -137,27 +137,29 @@ fetchPackage metadata pair@(packageName'@PackageName{..}, Package{ location = Re
               if useGlobalCache
               then do
                 logInfo $ "Installing and globally caching " <> display quotedName
-                catch (mv resultDir2 packageGlobalCacheDir) $ \(err :: SomeException) ->
+                catch (Directory.renameDirectory resultDir2 packageGlobalCacheDir) $ \(err :: SomeException) ->
                   logWarn $ display $ Messages.failedToCopyToGlobalCache err
               else logInfo $ "Installing " <> display quotedName
-              mv resultDir packageLocalCacheDir
+              Directory.renameDirectory resultDir packageLocalCacheDir
 
         -- If not, run a series of git commands to get the code, and move it to local cache.
         let nonCacheableCallback :: RIO env ()
             nonCacheableCallback = do
-              logInfo $ "Installing " <> display quotedName
+              logInfo $ "Installing " <> display quotedName <> " via git"
 
               -- Here we set the package directory as the cwd of the new process.
               -- This is the "right" way to do it (instead of using e.g.
-              -- System.Directory.withCurrentDirectory), as that's apparently
-              -- not thread-safe
-              let processWithNewCwd = (Process.shell (Text.unpack git))
-                    { Process.cwd = Just downloadDir }
+              -- System.Directory.withCurrentDirectory, as that's apparently
+              -- not thread-safe)
+              let processWithNewCwd attemptDir = (Process.shell (Text.unpack git))
+                    { Process.cwd = Just attemptDir }
 
-              Retry.recoverAll (Retry.fullJitterBackoff 100000 <> Retry.limitRetries 2)
-                  $ \_retryStatus -> systemStrictWithErr processWithNewCwd empty >>= \case
-                     (ExitSuccess, _, _) -> mv downloadDir packageLocalCacheDir
-                     (_, _out, err) -> die [ display $ Messages.failedToInstallDep quotedName err ]
+              Retry.recoverAll (Retry.fullJitterBackoff 100000 <> Retry.limitRetries 2) $ \_retryStatus ->
+                Temp.withTempDirectory downloadDir "attempt" $ \attemptDir -> do
+                  systemStrictWithErr (processWithNewCwd attemptDir) empty >>= \case
+                    (ExitSuccess, _, _) -> Directory.renameDirectory attemptDir packageLocalCacheDir
+                    (_, _out, err) -> do
+                      die [ display $ Messages.failedToInstallDep (quotedName <> " in " <> pretty attemptDir) err ]
 
         -- Make sure that the following folders exist first.
         --

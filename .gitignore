@@ -12,3 +12,5 @@ stack.yaml.lock
 !npm/.npmrc
 **/.vscode
 .psc*
+dist-newstyle
+

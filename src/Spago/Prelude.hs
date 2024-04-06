@@ -42,7 +42,6 @@ module Spago.Prelude
   , testfile
   , testdir
   , mktree
-  , mv
   , cptree
   , assertDirectory
   , chmod
@@ -189,10 +188,6 @@ viewShell = Turtle.view
 
 surroundQuote :: IsString t => Semigroup t => t -> t
 surroundQuote y = "\"" <> y <> "\""
-
-
-mv :: MonadIO m => System.IO.FilePath -> System.IO.FilePath -> m ()
-mv from to' = Turtle.mv (Turtle.decodeString from) (Turtle.decodeString to')
 
 
 cptree :: MonadIO m => System.IO.FilePath -> System.IO.FilePath -> m ()
